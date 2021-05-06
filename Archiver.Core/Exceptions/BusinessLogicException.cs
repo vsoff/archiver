@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace Archiver.Core.Common
+namespace Archiver.Core.Exceptions
 {
     public class BusinessLogicException : Exception
     {

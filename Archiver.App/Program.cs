@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Diagnostics;
+using System.IO;
 using Archiver.Core;
 using Archiver.Core.Common;
+using Archiver.Core.Exceptions;
 
 namespace Archiver.App
 {
@@ -25,6 +27,12 @@ namespace Archiver.App
                     throw new BusinessLogicException($"В параметрах запуска приложения обнаружены следующие проблемы: {separator}{problems}");
                 }
 
+                if (!File.Exists(compressorParams.SourceFilePath))
+                    throw new BusinessLogicException("Исходный файл не существует");
+
+                if (File.Exists(compressorParams.TargetFilePath))
+                    throw new BusinessLogicException("Выходной файл уже существует");
+
                 logger.Info($"Будет выполнена операция {compressorParams.ActionType}" +
                             $"\nИсходный файл: {compressorParams.SourceFilePath}" +
                             $"\nВыходной файл: {compressorParams.TargetFilePath}.");
@@ -40,7 +48,7 @@ namespace Archiver.App
                     case CompressorActionType.Decompress:
                         compressor.Decompress(compressorParams.SourceFilePath, compressorParams.TargetFilePath);
                         break;
-                    default: throw new InvalidOperationException($"Обнаружен неизвестный тип {nameof(CompressorActionType)}.{compressorParams.ActionType}");
+                    default: throw new UnknownCompressorActionTypeException(compressorParams.ActionType);
                 }
             }
             catch (BusinessLogicException ex)

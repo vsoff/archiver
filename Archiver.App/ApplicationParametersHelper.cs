@@ -1,6 +1,7 @@
 ﻿using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using Archiver.Core;
 
 namespace Archiver.App
@@ -9,8 +10,11 @@ namespace Archiver.App
     {
         public static ApplicationParameters ParseArguments(string[] args)
         {
-            var source = "harry potter 4.mp4";
-            var target = "harry potter 4.mp4.vzip";
+            // TODO: сделать парсинг
+            const string fileName = "harry potter 4.mp4";
+            //const string fileName = "test.png";
+            var source = fileName;
+            var target = $"{fileName}.vzip";
             return new ApplicationParameters.Builder()
                 .SetSourceFilePath(source)
                 .SetTargetFilePath(target)
