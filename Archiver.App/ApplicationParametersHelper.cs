@@ -1,6 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
+﻿using System.IO;
 using System.Linq;
 using Archiver.Core;
 using Archiver.Core.Exceptions;
@@ -12,13 +10,30 @@ namespace Archiver.App
         public static ApplicationParameters ParseArguments(string[] args)
         {
             if (args.Length != 3)
-                throw new BusinessLogicException($"Ожидалось получить 3 аргумента, но было получено {args.Length}");
+                throw new BusinessLogicException($"Ожидалось получить 3 аргумента, но было получено {args.Length}." +
+                                                 " Необходимый формат: Archiver.App.exe [compress|decompress] source_file target_file");
+
+            var actionType = args[0];
+            var sourceFilePath = args[1];
+            var targetFilePath = args[2];
+
+            if (string.IsNullOrWhiteSpace(sourceFilePath))
+                throw new BusinessLogicException("Не указано название исходного файла");
+
+            if (!IsPathValid(sourceFilePath))
+                throw new BusinessLogicException("Путь до исходного файла невалиден");
+
+            if (string.IsNullOrWhiteSpace(targetFilePath))
+                throw new BusinessLogicException("Не указано название исходного файла");
+
+            if (!IsPathValid(targetFilePath))
+                throw new BusinessLogicException("Путь до исходного файла невалиден");
 
             var builder = new ApplicationParameters.Builder()
                 .SetSourceFilePath(args[1])
                 .SetTargetFilePath(args[2]);
 
-            switch (args[0])
+            switch (actionType.ToLower())
             {
                 case "compress":
                     builder.SetCompressorActionType(CompressorActionType.Compress);
@@ -27,8 +42,7 @@ namespace Archiver.App
                     builder.SetCompressorActionType(CompressorActionType.Decompress);
                     break;
                 default:
-                    builder.SetCompressorActionType(CompressorActionType.Unknown);
-                    break;
+                    throw new BusinessLogicException($"Неизвестный тип операции компрессора: {actionType}");
             }
 
             return builder.Build();
@@ -46,27 +60,6 @@ namespace Archiver.App
                 return false;
 
             return true;
-        }
-
-        public static bool IsValid(this ApplicationParameters parameters, out string[] errors)
-        {
-            List<string> validationErrors = new List<string>();
-
-            if (string.IsNullOrWhiteSpace(parameters.SourceFilePath))
-                validationErrors.Add("Не указано название исходного файла");
-            else if (!IsPathValid(parameters.SourceFilePath))
-                validationErrors.Add("Путь до исходного файла невалиден");
-
-            if (string.IsNullOrWhiteSpace(parameters.TargetFilePath))
-                validationErrors.Add("Не указано название выходного файла");
-            else if (!IsPathValid(parameters.TargetFilePath))
-                validationErrors.Add("Путь до выходного файла невалиден");
-
-            if (parameters.ActionType == CompressorActionType.Unknown)
-                validationErrors.Add("Неизвестный тип действия");
-
-            errors = validationErrors.ToArray();
-            return errors.Length == 0;
         }
     }
 }

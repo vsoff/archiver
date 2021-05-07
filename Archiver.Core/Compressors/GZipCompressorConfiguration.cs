@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace Archiver.Core
+namespace Archiver.Core.Compressors
 {
     /// <summary>
     /// Настройки компрессора.

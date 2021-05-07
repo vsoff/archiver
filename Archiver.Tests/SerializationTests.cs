@@ -1,5 +1,3 @@
-using System;
-using Archiver.Core;
 using Archiver.Core.Common;
 using Archiver.Core.Serializers;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -9,14 +7,6 @@ namespace Archiver.Tests
     [TestClass]
     public class SerializationTests
     {
-        [TestMethod]
-        public void Test()
-        {
-            var fullArgumentsLine = "compress somename.exe \"super name.exe\"".Trim();
-            
-            var arguments = fullArgumentsLine.Split("\"", StringSplitOptions.RemoveEmptyEntries);
-        }
-
         [TestMethod]
         public void FileBlockSerializerTest()
         {

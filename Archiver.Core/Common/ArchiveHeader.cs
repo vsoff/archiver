@@ -4,6 +4,9 @@ using System.Linq;
 
 namespace Archiver.Core.Common
 {
+    /// <summary>
+    /// Заголовок архива.
+    /// </summary>
     public class ArchiveHeader
     {
         /// <summary>

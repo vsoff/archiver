@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using Archiver.Core;
 using Archiver.Core.Common;
+using Archiver.Core.Compressors;
 using Archiver.Core.Exceptions;
 
 namespace Archiver.App
@@ -17,7 +18,10 @@ namespace Archiver.App
 
             AppDomain.CurrentDomain.UnhandledException += (sender, eventArgs) =>
             {
-                logger.Error("Произошло необработанное исключение", eventArgs.ExceptionObject as Exception);
+                if (eventArgs.ExceptionObject is BusinessLogicException ble)
+                    logger.Error(ble.Message);
+                else
+                    logger.Error("Произошло необработанное исключение", eventArgs.ExceptionObject as Exception);
                 Environment.Exit(1);
             };
 
@@ -32,12 +36,6 @@ namespace Archiver.App
             {
                 // Читаем и валидируем входные параметры.
                 var compressorParams = ApplicationParametersHelper.ParseArguments(args);
-                if (!compressorParams.IsValid(out var errors))
-                {
-                    const string separator = "\n* ";
-                    var problems = string.Join(separator, errors);
-                    throw new BusinessLogicException($"В параметрах запуска приложения обнаружены следующие проблемы: {separator}{problems}");
-                }
 
                 if (!File.Exists(compressorParams.SourceFilePath))
                     throw new BusinessLogicException("Исходный файл не существует");
@@ -48,17 +46,8 @@ namespace Archiver.App
 
                 // Делаем компрессию/декомпрессию.
                 var configuration = new GZipCompressorConfiguration();
-                var compressor = new GZipCompressor(configuration, logger);
-                switch (compressorParams.ActionType)
-                {
-                    case CompressorActionType.Compress:
-                        compressor.Compress(compressorParams.SourceFilePath, compressorParams.TargetFilePath);
-                        break;
-                    case CompressorActionType.Decompress:
-                        compressor.Decompress(compressorParams.SourceFilePath, compressorParams.TargetFilePath);
-                        break;
-                    default: throw new UnknownCompressorActionTypeException(compressorParams.ActionType);
-                }
+                var compressor = CreateCompressorActionType(configuration, logger, compressorParams.ActionType);
+                compressor.ApplyCompressorAction(compressorParams.SourceFilePath, compressorParams.TargetFilePath);
             }
             catch (BusinessLogicException ex)
             {
@@ -74,6 +63,21 @@ namespace Archiver.App
             {
                 logger.Info($"Приложение завершило свою работу за {sw.Elapsed}.");
                 Environment.Exit(success ? 0 : 1);
+            }
+        }
+
+        private static GZipActionBase CreateCompressorActionType(
+            GZipCompressorConfiguration configuration,
+            ILogger logger,
+            CompressorActionType actionType)
+        {
+            switch (actionType)
+            {
+                case CompressorActionType.Compress:
+                    return new GZipActionCompressor(configuration, logger);
+                case CompressorActionType.Decompress:
+                    return new GZipActionDecompressor(configuration, logger);
+                default: throw new UnknownCompressorActionTypeException(actionType);
             }
         }
     }
