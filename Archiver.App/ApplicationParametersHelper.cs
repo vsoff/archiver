@@ -1,8 +1,9 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Threading;
 using Archiver.Core;
+using Archiver.Core.Exceptions;
 
 namespace Archiver.App
 {
@@ -10,16 +11,27 @@ namespace Archiver.App
     {
         public static ApplicationParameters ParseArguments(string[] args)
         {
-            // TODO: сделать парсинг
-            const string fileName = "harry potter 4.mp4";
-            //const string fileName = "test.png";
-            var source = fileName;
-            var target = $"{fileName}.vzip";
-            return new ApplicationParameters.Builder()
-                .SetSourceFilePath(source)
-                .SetTargetFilePath(target)
-                .SetCompressorActionType(CompressorActionType.Compress)
-                .Build();
+            if (args.Length != 3)
+                throw new BusinessLogicException($"Ожидалось получить 3 аргумента, но было получено {args.Length}");
+
+            var builder = new ApplicationParameters.Builder()
+                .SetSourceFilePath(args[1])
+                .SetTargetFilePath(args[2]);
+
+            switch (args[0])
+            {
+                case "compress":
+                    builder.SetCompressorActionType(CompressorActionType.Compress);
+                    break;
+                case "decompress":
+                    builder.SetCompressorActionType(CompressorActionType.Decompress);
+                    break;
+                default:
+                    builder.SetCompressorActionType(CompressorActionType.Unknown);
+                    break;
+            }
+
+            return builder.Build();
         }
 
         private static bool IsPathValid(string path)

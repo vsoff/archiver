@@ -3,48 +3,52 @@ using System.Threading;
 
 namespace Archiver.Core
 {
+    /// <summary>
+    /// Контекст синхронизации количества чтений и записи.
+    /// </summary>
+    /// <remarks>Нужен для ограничения одновременного нахождения в оперативной памяти большого кол-ва блоков.</remarks>
     public class CompressorSyncContext
     {
-        private readonly int _maxIndexesDelta;
+        private readonly int _maxCountDelta;
         private readonly ManualResetEvent _readResetEvent;
 
         private readonly object _readLocker;
         private readonly object _writeLocker;
 
-        private int _lastWriteIndex;
-        private int _lastReadIndex;
+        private int _lastWriteCount;
+        private int _lastReadCount;
 
-        public CompressorSyncContext(int maxIndexesDelta)
+        public CompressorSyncContext(int maxCountDelta)
         {
-            if (maxIndexesDelta <= 0) throw new ArgumentOutOfRangeException(nameof(maxIndexesDelta));
-            _maxIndexesDelta = maxIndexesDelta;
+            if (maxCountDelta <= 0) throw new ArgumentOutOfRangeException(nameof(maxCountDelta));
+            _maxCountDelta = maxCountDelta;
             _writeLocker = new object();
             _readLocker = new object();
             _readResetEvent = new ManualResetEvent(false);
-            _lastReadIndex = 0;
-            _lastWriteIndex = 0;
+            _lastReadCount = 0;
+            _lastWriteCount = 0;
         }
 
-        public void IncrementReadIndex()
+        public void IncrementReadCount()
         {
             lock (_readLocker)
             {
-                if (_lastReadIndex - _lastWriteIndex >= _maxIndexesDelta)
+                if (_lastReadCount - _lastWriteCount >= _maxCountDelta)
                 {
                     _readResetEvent.WaitOne();
                     _readResetEvent.Reset();
                 }
 
-                Interlocked.Increment(ref _lastReadIndex);
+                Interlocked.Increment(ref _lastReadCount);
             }
         }
 
-        public void IncrementWriteIndex()
+        public void IncrementWriteCount()
         {
             lock (_writeLocker)
             {
                 _readResetEvent.Set();
-                Interlocked.Increment(ref _lastWriteIndex);
+                Interlocked.Increment(ref _lastWriteCount);
             }
         }
     }

@@ -1,7 +1,11 @@
 ﻿using System;
+using System.Linq;
 
 namespace Archiver.Core.Common
 {
+    /// <summary>
+    /// Блок файла.
+    /// </summary>
     public class FileBlock
     {
         /// <summary>
@@ -21,9 +25,9 @@ namespace Archiver.Core.Common
 
         public FileBlock(int index, byte[] data)
         {
-            Data = data ?? throw new ArgumentNullException(nameof(data));
+            Data = data?.ToArray() ?? throw new ArgumentNullException(nameof(data));
             Index = index;
-            Size = data.Length;
+            Size = Data.Length;
         }
 
         public override string ToString() => $"{{Block | Index: {Index}; Size: {Size}}}";

@@ -15,6 +15,18 @@ namespace Archiver.App
             var logger = new ConsoleLogger();
             logger.Info("Приложение запущено");
 
+            AppDomain.CurrentDomain.UnhandledException += (sender, eventArgs) =>
+            {
+                logger.Error("Произошло необработанное исключение", eventArgs.ExceptionObject as Exception);
+                Environment.Exit(1);
+            };
+
+            Console.CancelKeyPress += (sender, eventArgs) =>
+            {
+                logger.Warning("Работа программы была прервана вручную");
+                Environment.Exit(1);
+            };
+
             bool success = true;
             try
             {
@@ -29,9 +41,6 @@ namespace Archiver.App
 
                 if (!File.Exists(compressorParams.SourceFilePath))
                     throw new BusinessLogicException("Исходный файл не существует");
-
-                if (File.Exists(compressorParams.TargetFilePath))
-                    throw new BusinessLogicException("Выходной файл уже существует");
 
                 logger.Info($"Будет выполнена операция {compressorParams.ActionType}" +
                             $"\nИсходный файл: {compressorParams.SourceFilePath}" +

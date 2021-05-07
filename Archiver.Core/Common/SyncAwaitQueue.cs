@@ -1,8 +1,11 @@
 ﻿using System.Collections.Generic;
 using System.Threading;
 
-namespace Archiver.Core
+namespace Archiver.Core.Common
 {
+    /// <summary>
+    /// Потокобезопасная очередь с возможностью ожидания элемента.
+    /// </summary>
     public class SyncAwaitQueue<T>
     {
         private readonly ManualResetEvent _noElementsManualResetEvent;

@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
@@ -7,6 +6,8 @@ using System.Linq;
 using System.Threading;
 using Archiver.Core.Common;
 using Archiver.Core.Exceptions;
+using Archiver.Core.Extensions;
+using Archiver.Core.Serializers;
 
 namespace Archiver.Core
 {
@@ -30,86 +31,141 @@ namespace Archiver.Core
             SyncAwaitQueue<FileBlock> targetBlocks,
             CompressorActionType compressorAction)
         {
-            _logger.Info($"Поток ThreadId=={Thread.CurrentThread.ManagedThreadId} запущен");
-
-            int iteration = 0;
             while (sourceBlocks.TryDequeue(out var block))
             {
-                _logger.Info($"[{++iteration}] Hello from ThreadId=={Thread.CurrentThread.ManagedThreadId}, block={block}");
                 var resultBlock = ApplyCompressAction(block, compressorAction);
                 targetBlocks.Enqueue(resultBlock);
             }
-
-            _logger.Info($"Поток ThreadId=={Thread.CurrentThread.ManagedThreadId} закончил работу. Итераций: {iteration}");
         }
 
         /// <summary>
         /// Алгоритм работы треда записи данных в файл.
         /// </summary>
-        private void DoWriteWork(string targetFile, SyncAwaitQueue<FileBlock> targetBlocks, CompressorSyncContext context)
+        private void DoWriteWork(string targetFile,
+            SyncAwaitQueue<FileBlock> targetBlocks,
+            CompressorSyncContext context,
+            CompressorActionType actionType,
+            long sourceFileBytesCount)
         {
-            int index = 0;
-            var sortedBlocks = new SortedList<int, FileBlock>();
             using FileStream targetStream = File.Create(targetFile);
-            while (targetBlocks.TryDequeue(out var block))
+            switch (actionType)
             {
-                sortedBlocks.Add(block.Index, block);
-
-                do
+                case CompressorActionType.Compress:
                 {
-                    // Если элемент не "последовательно ожидаемый", то пропускаем обработку.
-                    var firstElement = sortedBlocks.First();
-                    if (firstElement.Key != index)
-                        break;
+                    // Запишем в поток пустой заголовок, после записи данных мы его перезапишем.
+                    var blocksCount = (int) Math.Ceiling((double) sourceFileBytesCount / Configuration.BlockSizeBytes);
+                    var emptyArchiveHeader = ArchiveHeader.CreateEmpty(blocksCount);
+                    var emptyHeaderBytes = ArchiveHeaderSerializer.Serialize(emptyArchiveHeader);
+                    targetStream.WriteArray(emptyHeaderBytes);
 
-                    // Ожидаемый блок пишем в поток.
-                    sortedBlocks.Remove(index, out var removedBlock);
-                    targetStream.Write(removedBlock.Data);
-                    index++;
-                    context.IncrementWriteIndex();
-                    _logger.Debug($"[====] В файл записан блок {removedBlock}, следующий ожидаемый индекс: {index}");
-                } while (sortedBlocks.Count != 0);
+                    // Записываем все блоки файла и запоминаем их смещения, чтобы потом записать их в заголовок.
+                    var blockOffsets = new long[blocksCount];
+                    while (targetBlocks.TryDequeue(out var block))
+                    {
+                        var serializedData = FileBlockSerializer.Serialize(block);
+                        blockOffsets[block.Index] = targetStream.Position;
+
+                        targetStream.WriteArray(serializedData);
+                        context.IncrementWriteCount();
+                    }
+
+                    // Перезаписываем заголовок, чтобы знать смещения каждого блока.
+                    var newHeader = new ArchiveHeader(blockOffsets);
+                    var newHeaderBytes = ArchiveHeaderSerializer.Serialize(newHeader);
+                    if (emptyHeaderBytes.Length != newHeaderBytes.Length)
+                        throw new InvalidOperationException("Количество байт у пустого заголовка и заполненного не совпадает");
+
+                    targetStream.Position = 0;
+                    targetStream.WriteArray(newHeaderBytes);
+
+                    break;
+                }
+                case CompressorActionType.Decompress:
+                {
+                    int index = 0;
+                    var sortedBlocks = new SortedList<int, FileBlock>();
+                    while (targetBlocks.TryDequeue(out var block))
+                    {
+                        sortedBlocks.Add(block.Index, block);
+
+                        do
+                        {
+                            // Если элемент не "последовательно ожидаемый", то пропускаем обработку.
+                            var firstElement = sortedBlocks.First();
+                            if (firstElement.Key != index)
+                                break;
+
+                            // Ожидаемый блок пишем в поток.
+                            sortedBlocks.Remove(index, out var removedBlock);
+                            targetStream.Write(removedBlock.Data, 0, removedBlock.Data.Length);
+                            index++;
+                            context.IncrementWriteCount();
+                        } while (sortedBlocks.Count != 0);
+                    }
+
+                    break;
+                }
+                default: throw new UnknownCompressorActionTypeException(actionType);
             }
-
-            _logger.Debug("Запись в файл завершена");
         }
 
         /// <summary>
         /// Алгоритм работы треда чтения данных из файла.
         /// </summary>
-        private void DoReadWork(string sourceFile, SyncAwaitQueue<FileBlock> sourceBlocks, CompressorSyncContext context)
+        private void DoReadWork(string sourceFile,
+            SyncAwaitQueue<FileBlock> sourceBlocks,
+            CompressorSyncContext context,
+            CompressorActionType actionType)
         {
-            _logger.Debug("Начато чтение файла");
             using (FileStream sourceStream = new FileStream(sourceFile, FileMode.Open))
             {
-                int readedBytes;
-                byte[] buffer = new byte[Configuration.BlockSizeBytes];
-                int offset = 0;
-                int index = 0;
-                do
+                switch (actionType)
                 {
-                    context.IncrementReadIndex();
-                    readedBytes = sourceStream.Read(buffer, offset, Configuration.BlockSizeBytes);
-                    _logger.Debug($"Вычитана порция в потоке Id=={Thread.CurrentThread.ManagedThreadId};" +
-                                  $" Offset: {offset}; Readed bytes: {readedBytes}");
+                    case CompressorActionType.Compress:
+                        int readedBytes;
+                        byte[] buffer = new byte[Configuration.BlockSizeBytes];
+                        int offset = 0;
+                        int index = 0;
+                        do
+                        {
+                            context.IncrementReadCount();
+                            readedBytes = sourceStream.Read(buffer, offset, Configuration.BlockSizeBytes);
 
-                    // Обработка последней секции.
-                    if (readedBytes < Configuration.BlockSizeBytes)
-                    {
-                        byte[] lastPart = new byte[readedBytes];
-                        Array.Copy(buffer, 0, lastPart, 0, readedBytes);
-                        var lastBlock = new FileBlock(index, lastPart);
-                        sourceBlocks.Enqueue(lastBlock);
+                            // Обработка последней секции.
+                            if (readedBytes < Configuration.BlockSizeBytes)
+                            {
+                                byte[] lastPart = new byte[readedBytes];
+                                Array.Copy(buffer, 0, lastPart, 0, readedBytes);
+                                var lastBlock = new FileBlock(index, lastPart);
+                                sourceBlocks.Enqueue(lastBlock);
+                                break;
+                            }
+
+                            var block = new FileBlock(index++, buffer);
+                            sourceBlocks.Enqueue(block);
+                        } while (readedBytes == Configuration.BlockSizeBytes);
+
                         break;
-                    }
+                    case CompressorActionType.Decompress:
+                        var headerBytes = sourceStream.ReadArray();
+                        var header = ArchiveHeaderSerializer.Deserialize(headerBytes);
 
-                    var block = new FileBlock(index++, buffer);
-                    sourceBlocks.Enqueue(block);
-                } while (readedBytes == Configuration.BlockSizeBytes);
+                        foreach (var blockOffset in header.BlockOffsets)
+                        {
+                            context.IncrementReadCount();
+                            sourceStream.Position = blockOffset;
+                            var blockBytes = sourceStream.ReadArray();
+                            var block = FileBlockSerializer.Deserialize(blockBytes);
+
+                            sourceBlocks.Enqueue(block);
+                        }
+
+                        break;
+                    default: throw new UnknownCompressorActionTypeException(actionType);
+                }
             }
 
             sourceBlocks.ResetAwait();
-            _logger.Debug("Файл полностью вычитан. Дожидаемся завершения потоков...");
         }
 
         /// <summary>
@@ -125,8 +181,8 @@ namespace Archiver.Core
                     using (GZipStream zipStream = new GZipStream(memoryStream, CompressionMode.Compress, false))
                     {
                         zipStream.Write(block.Data, 0, block.Size);
+                        zipStream.Flush();
                         newData = memoryStream.ToArray();
-                        _logger.Info($"Old: {block.Data.Length}; New: {newData.Length}");
                     }
 
                     break;
@@ -138,6 +194,7 @@ namespace Archiver.Core
                         using (var resultStream = new MemoryStream())
                         {
                             zipStream.CopyTo(resultStream);
+                            zipStream.Flush();
                             newData = resultStream.ToArray();
                         }
                     }
@@ -157,14 +214,16 @@ namespace Archiver.Core
 
         private void ExecuteCompressorAction(string sourceFile, string targetFile, CompressorActionType actionType)
         {
-            _logger.Debug($"{nameof(ExecuteCompressorAction)}: Экшн {actionType} запущен");
+            FileInfo sourceFileInfo = new FileInfo(sourceFile);
+
+            _logger.Info($"{nameof(ExecuteCompressorAction)}: Операция {actionType} запущена");
 
             var sourceBlocks = new SyncAwaitQueue<FileBlock>();
             var targetBlocks = new SyncAwaitQueue<FileBlock>();
-            var syncContext = new CompressorSyncContext(20);
+            var syncContext = new CompressorSyncContext(Configuration.MaxCountDelta);
 
-            var writeThread = new Thread(() => DoWriteWork(targetFile, targetBlocks, syncContext));
-            var readThread = new Thread(() => DoReadWork(sourceFile, sourceBlocks, syncContext));
+            var writeThread = new Thread(() => DoWriteWork(targetFile, targetBlocks, syncContext, actionType, sourceFileInfo.Length));
+            var readThread = new Thread(() => DoReadWork(sourceFile, sourceBlocks, syncContext, actionType));
             var threads = Enumerable.Range(0, Configuration.ThreadsCount)
                 .Select(_ => new Thread(() => DoCompressWork(sourceBlocks, targetBlocks, actionType)))
                 .ToList();
@@ -177,13 +236,15 @@ namespace Archiver.Core
 
             // Дожидаемся выполнения всех тредов.
             readThread.Join();
+            _logger.Info("Файл полностью прочитан. Дожидаемся завершения потоков...");
+
             foreach (Thread thread in threads)
                 thread.Join();
 
             targetBlocks.ResetAwait();
             writeThread.Join();
 
-            _logger.Debug($"{nameof(ExecuteCompressorAction)}: Все потоки завершились, экшн {actionType} завершён");
+            _logger.Info($"{nameof(ExecuteCompressorAction)}: Все потоки завершились, выполнение операции {actionType} закончено");
         }
     }
 }

@@ -2,6 +2,9 @@
 
 namespace Archiver.Core.Exceptions
 {
+    /// <summary>
+    /// Представляет ошибку неизвестного типа операции компрессора.
+    /// </summary>
     public class UnknownCompressorActionTypeException : Exception
     {
         public CompressorActionType ActionType { get; }
